@@ -3,96 +3,96 @@
 
 ***************************************************************************    rtl code    *********************************************************
 
-module fifo(clk,rst,din,soft_rst,wr_en,rd_en,lfd,empty,full,dout);
-	input clk,rst,soft_rst,wr_en,rd_en,lfd;
-	input [7:0]din;
-	output empty,full;
-	output reg[7:0]dout;
-	reg [4:0]rd_pt,wr_pt;
-	reg [8:0]mem[15:0];
+module fifo(clk, rst, din, rd_en, wr_en, lfd, soft_rst, empty, full, dout);
+	input [7:0] din;
+	input clk, rst, wr_en, rd_en, lfd, soft_rst;
+	output full, empty;
+	output reg [7:0] dout;
+	
 	reg lfd_s;
-	reg [6:0]fifo_count; // payload + parity(6+1)
+	reg [8:0] mem[15:0];
+	reg [6:0] count; // beacause payload =6 and parity=1
+	
+	reg [4:0] wr_pt; // 5th bit is used to give clarity about it is full/empty
+	reg [4:0] rd_pt;
 	integer i;
-	//delay of lfd state 
 //in register there is header file to store the header bit in that so it require 1 clock cycle delay//
-	always@(posedge clk )
+	always @(posedge clk)
+	begin
+		if (rst)
+			lfd_s <= 0;
+		else if (soft_rst)
+			lfd_s <= 0;
+		else
+			lfd_s <= lfd;
+	end
+// pointers increment 
+	always @(posedge clk)
+	begin
+		if (rst)
+			{wr_pt, rd_pt} <= 0;
+		else if (soft_rst)
+			{wr_pt, rd_pt} <= 0;
+		else if (wr_en && !full)
+			wr_pt <= wr_pt + 1'b1;
+		else if (rd_en && !empty)
+			rd_pt <= rd_pt + 1'b1;
+		else
 		begin
-		if(!rst)
-			lfd_s<=0;
-		else if(soft_rst)
-			lfd_s<=0;
-		else 
-			lfd_s<=lfd;
+			wr_pt <= wr_pt;
+			rd_pt <= rd_pt;
 		end
-// increment of pointers
-	always@(posedge clk)
-		begin 
-		if(!rst)
-			{wr_pt,rd_pt}<=0;
-		else if(soft_rst)
-			{wr_pt,rd_pt}<=0;
-		else if(wr_en && !full)
-			wr_pt<=wr_pt+1'b1;
-		else if(rd_en && !empty)
-			rd_pt<=rd_pt+1'b1;
-		else 
-			begin
-			rd_pt<=rd_pt;
-			wr_pt<=wr_pt;
-			end
+	end
+// write logic
+	always @(posedge clk)
+	begin
+		if (rst)
+		begin
+			for (i = 0; i < 16; i = i + 1)
+				mem[i] <= 0;
 		end
-// fifo write
-	always@(posedge clk)
+		else if (soft_rst)
 		begin
-		if(!rst)
-			begin 
-			for(i=0;i<16;i=i+1)
-				begin
-					mem[i]<=0;
-				end
-			end
-		else if(soft_rst)
-			begin 
-			for(i=0;i<16;i=i+1)
-				begin
-					mem[i]<=0;
-				end
-			end
-		else if(wr_en && !full)
-			mem[wr_pt[3:0]]<={lfd_s,din};
-			end
-// fifo counter
-	always@(posedge clk)
-		begin
-			if(!rst)
-				fifo_count<=0;
-			else if(soft_rst)
-				fifo_count<=0;
-			else if(rd_en && !empty)
-				begin
-					if(mem[rd_pt[3:0]][8]==1)
-						begin
-							fifo_count<=(mem[rd_pt[3:0]][7:2]+1);
-						end
-				end
-			end
-			
-// fifo read
-	always@(posedge clk)
-		begin
-			if(!rst)
-				dout<=0;
-			else if(soft_rst)
-				dout<=8'bz;
-			else if(fifo_count==0 && dout!=0)
-				dout<=8'bz;
-			else if(rd_en && !empty)
-				begin
-					dout<=mem[rd_pt[3:0]][7:0];
-				end
-			else 
-				dout<=dout;
+			for (i = 0; i < 16; i = i + 1)
+				mem[i] <= 0;
 		end
-	assign full=(wr_pt[3:0]==rd_pt[3:0]) && (wr_pt[4]==!rd_pt[4])?1'b1:1'b0;
-	assign empty=wr_pt[4:0] == rd_pt[4:0]?1'b1:1'b0;
+		else if (wr_en && !full)
+			mem[wr_pt[3:0]] <= {lfd_s, din};
+	end
+// counter
+	always @(posedge clk)
+	begin
+		if (rst)
+			count <= 0;
+		else if (soft_rst)
+			count <= 0;
+		else if (rd_en && !empty)
+		begin
+			if (mem[rd_pt[3:0]][8] == 1)
+				count <= (mem[rd_pt[3:0]][7:2] + 1);
+		end
+		else if (count != 0)
+			count <= count - 7'b1;
+		else
+			count <= count;
+	end
+// read logic
+	always @(posedge clk)
+	begin
+		if (rst)
+			dout <= 0;
+		else if (soft_rst)
+			dout <= 8'hz;
+		else if (count == 0 && dout != 0)
+			dout <= 8'hz;
+		else if (rd_en && !empty)
+			dout <= mem[rd_pt[3:0]][7:0];
+		else
+			dout <= dout;
+	end
+
+	assign full = (rd_pt[3:0] == wr_pt[3:0]) && (rd_pt[4] != wr_pt[4]) ? 1'b1 : 1'b0;
+	assign empty = (rd_pt == wr_pt);
+
 endmodule
+
