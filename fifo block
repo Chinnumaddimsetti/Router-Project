@@ -3,95 +3,203 @@
 
 ***************************************************************************    rtl code    *********************************************************
 
-module fifo(clk, rst, din, rd_en, wr_en, lfd, soft_rst, empty, full, dout);
-	input [7:0] din;
-	input clk, rst, wr_en, rd_en, lfd, soft_rst;
-	output full, empty;
-	output reg [7:0] dout;
-	reg lfd_s;
-	reg [8:0] mem[15:0];
-	reg [6:0] count; // beacause payload =6 and parity=1
-	
-	reg [4:0] wr_pt; // 5th bit is used to give clarity about it is full/empty
-	reg [4:0] rd_pt;
+module fifo(clk,rstn,write_enb,soft_reset,read_enb,data_in,lfd_state,empty,data_out,full);
+	input clk,rstn,write_enb,soft_reset,read_enb,lfd_state;
+	input [7:0]data_in;
+	output reg [7:0]data_out;
+	output full,empty;
+	reg [8:0]mem[15:0];
+	reg lfd_state_s;
+	reg [4:0]r_ptr,w_ptr;
+	reg [6:0]count;
 	integer i;
-//in register there is header file to store the header bit in that so it require 1 clock cycle delay//
-	always @(posedge clk)
-	begin
-		if (rst)
-			lfd_s <= 0;
-		else if (soft_rst)
-			lfd_s <= 0;
-		else
-			lfd_s <= lfd;
-	end
-// pointers increment 
-	always @(posedge clk)
-	begin
-		if (rst)
-			{wr_pt, rd_pt} <= 0;
-		else if (soft_rst)
-			{wr_pt, rd_pt} <= 0;
-		else if (wr_en && !full)
-			wr_pt <= wr_pt + 1'b1;
-		else if (rd_en && !empty)
-			rd_pt <= rd_pt + 1'b1;
-		else
+	
+	//delay
+	always@(posedge clk)
 		begin
-			wr_pt <= wr_pt;
-			rd_pt <= rd_pt;
+			if(!rstn)
+				lfd_state_s<=0;
+			else
+				lfd_state_s<=lfd_state;
 		end
-	end
-// write logic
-	always @(posedge clk)
-	begin
-		if (rst)
+	//ptr incrementing
+	always@(posedge clk)
+		begin 
+			if(!rstn)
+				{w_ptr,r_ptr}<=0;
+			else if(soft_reset)
+				{w_ptr,r_ptr}<=0;
+			else if(write_enb && !full)
+				w_ptr<=w_ptr+1'b1;
+			else if(read_enb && !empty)
+				r_ptr<=r_ptr+1'b1;
+			else
+				data_out<=data_out;
+		end
+	//write and read operations
+	always@(posedge clk)
 		begin
-			for (i = 0; i < 16; i = i + 1)
-				mem[i] <= 0;
-		end
-		else if (soft_rst)
-		begin
-			for (i = 0; i < 16; i = i + 1)
-				mem[i] <= 0;
-		end
-		else if (wr_en && !full)
-			mem[wr_pt[3:0]] <= {lfd_s, din};
-	end
-// counter
-	always @(posedge clk)
-	begin
-		if (rst)
-			count <= 0;
-		else if (soft_rst)
-			count <= 0;
-		else if (rd_en && !empty)
-		begin
-			if (mem[rd_pt[3:0]][8] == 1)
-				count <= (mem[rd_pt[3:0]][7:2] + 1);
-		end
-		else if (count != 0)
-			count <= count - 7'b1;
+		if(!rstn)
+			begin
+				for(i=0;i<16;i=i+1)
+					begin 
+						mem[i]<=0;
+					end
+			end
+		else if(soft_reset)
+			begin
+				for(i=0;i<16;i=i+1)
+					begin 
+						mem[i]<=0;
+					end
+			end
+		else if(write_enb && !full)
+			begin
+				mem[w_ptr[3:0]]<={lfd_state_s,data_in};
+			end
 		else
-			count <= count;
-	end
-// read logic
-	always @(posedge clk)
-	begin
-		if (rst)
-			dout <= 0;
-		else if (soft_rst)
-			dout <= 8'hz;
-		else if (count == 0 && dout != 0)
-			dout <= 8'hz;
-		else if (rd_en && !empty)
-			dout <= mem[rd_pt[3:0]][7:0];
-		else
-			dout <= dout;
-	end
-
-	assign full = (rd_pt[3:0] == wr_pt[3:0]) && (rd_pt[4] != wr_pt[4]) ? 1'b1 : 1'b0;
-	assign empty = (rd_pt == wr_pt);
-
+			data_out<=data_out;
+		end
+	//count
+	always@(posedge clk)
+		begin 
+			if(!rstn)
+				begin 
+					count<=0;
+				end
+			else if(soft_reset)
+				count<=0;
+			else if(read_enb && !empty)
+				begin 
+					if(mem[r_ptr[3:0]][8]==1)
+						begin 
+							count<=mem[r_ptr[3:0]][7:2]+1'b1;
+						end
+					else if(count!=0)
+						count<=count-1'b1;
+					end
+		end
+	//read
+	always@(posedge clk)
+		begin 
+			if(!rstn)
+				data_out<=0;
+			else if(soft_reset)
+				data_out<=8'bz;
+			else if(read_enb && !empty)
+				data_out<=mem[r_ptr[3:0]][7:0];
+			else if(count==0 && data_out!=0)
+				data_out<=8'bz;
+		end
+assign full = (w_ptr[3:0]==r_ptr[3:0] && w_ptr[4]!=r_ptr[4])?1'b1:1'b0;
+assign empty=w_ptr==r_ptr;
 endmodule
+
+			
+				
+/*                                          TB CODE                                                                    */
+
+
+
+
+module tb;
+    reg clk, rstn, write_enb, soft_reset, read_enb, lfd_state;
+    reg [7:0] data_in;
+    wire [7:0] data_out;
+    wire empty, full;
+
+    fifo DUT(clk, rstn, write_enb, soft_reset, read_enb, data_in, lfd_state, empty, data_out, full);
+
+    initial begin 
+        clk = 0;
+        forever #5 clk = ~clk; 
+    end
+
+    task initialize;
+    begin 
+        {write_enb, soft_reset, read_enb, lfd_state, data_in} = 0;
+        rstn = 1;
+    end
+    endtask
+
+    task reset;
+    begin 
+        @(negedge clk)
+            rstn = 0; 
+        @(negedge clk)
+            rstn = 1;
+    end
+    endtask
+
+    task sreset;
+    begin 
+        @(negedge clk)
+            soft_reset = 1;
+        @(negedge clk)    
+            soft_reset = 0;
+    end
+    endtask
+
+    task write;
+	     reg [7:0] parity, header, payload_data;
+        reg [6:0] payload_length;
+        reg [1:0] addr;
+        integer k;
+
+
+    begin 
+        @(negedge clk)
+            lfd_state = 1;
+
+        @(negedge clk) begin 
+            addr = 2'b10;
+            payload_length = 6'd14;
+            header = {payload_length, addr};
+            data_in = header;
+            lfd_state = 0;
+            write_enb = 1;
+        end
+
+        for (k = 0; k < payload_length; k = k + 1) begin 
+            @(negedge clk) begin 
+                payload_data = {$random} % 256; 
+                data_in = payload_data;
+            end
+        end
+
+        @(negedge clk) begin 
+            parity = {$random} % 256; 
+            data_in = parity;
+        end
+
+        @(negedge clk)
+            write_enb = 0; 
+    end
+    endtask
+
+    task read;
+    integer i;
+    begin 
+        for (i = 0; i < 16; i = i + 1) begin 
+            @(negedge clk)
+                read_enb = 1; 
+        end
+        read_enb = 0;
+    end
+    endtask
+
+    initial begin 
+        initialize;
+        reset;
+        sreset;
+        write;
+        #10;
+        read;
+    end
+
+    initial begin 
+        #500 $finish;     end
+endmodule
+
+			
 
