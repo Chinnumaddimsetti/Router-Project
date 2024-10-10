@@ -32,7 +32,6 @@ endmodule
 /*                                                                                               TB CODE                                                                                      */
 
 
-
 module top_tb();
 
 reg clk,rstn,read_enb_0,read_enb_1,read_enb_2,pkt_valid;
@@ -87,6 +86,8 @@ task write;
 		payload_data={$random}%256;
 		data_in =payload_data;
         	end
+	@(negedge clk)
+	read_enb_0=1;
 	end
 	end
 	@(negedge clk)
@@ -100,19 +101,19 @@ task write;
 	end
 end
 endtask
-task read;
+/*task read;
 begin
 	@(negedge clk)
 	read_enb_0=1;
 end
 endtask
-
+*/
 initial
 begin
 	initialize;
 	reset;
 	write;
 	#10;
-	read;
+	//read;
 end
 endmodule
